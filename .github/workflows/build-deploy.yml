@@ -1,0 +1,39 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build-scan-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Build Docker image
+        run: docker build -t tasky:latest .
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: tasky:latest
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: 0
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Push to Artifact Registry
+        run: |
+          gcloud auth configure-docker us-central1-docker.pkg.dev
+          docker tag tasky:latest us-central1-docker.pkg.dev/clgcporg10-163/wiz-repo/tasky:latest
+          docker push us-central1-docker.pkg.dev/clgcporg10-163/wiz-repo/tasky:latest
+
+      - name: Deploy to GKE
+        run: |
+          gcloud container clusters get-credentials wiz-cluster --zone=us-central1-a
+          kubectl rollout restart deployment/tasky-deployment
